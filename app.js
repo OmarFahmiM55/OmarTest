@@ -1,20 +1,13 @@
-// Import Express.js
 const express = require('express');
-
-// Create an Express app
 const app = express();
-
-// Middleware to parse JSON bodies
 app.use(express.json());
 
-// Set port and verify_token
 const port = process.env.PORT || 3000;
 const verifyToken = process.env.VERIFY_TOKEN;
+const IPAAS_URL = process.env.IPAAS_URL;
 
-// Route for GET requests
 app.get('/', (req, res) => {
   const { 'hub.mode': mode, 'hub.challenge': challenge, 'hub.verify_token': token } = req.query;
-
   if (mode === 'subscribe' && token === verifyToken) {
     console.log('WEBHOOK VERIFIED');
     res.status(200).send(challenge);
@@ -23,15 +16,37 @@ app.get('/', (req, res) => {
   }
 });
 
-// Route for POST requests
-app.post('/', (req, res) => {
-  const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 19);
-  console.log(`\n\nWebhook received ${timestamp}\n`);
-  console.log(JSON.stringify(req.body, null, 2));
+app.post('/', async (req, res) => {
+  const body = req.body;
+  
+  try {
+    const message = body.entry[0].changes[0].value.messages[0];
+    
+    if (message.type === 'button') {
+      const payload = message.button.payload;
+      const from = message.from;
+      
+      console.log('Button tapped:', payload, 'From:', from);
+      
+      // Forward to iPaaS
+      const fetch = require('node-fetch');
+      await fetch(IPAAS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: payload.startsWith('APPROVE') ? 'APPROVE' : 'REJECT',
+          ticketId: payload.split('_')[1],
+          from: from
+        })
+      });
+    }
+  } catch (e) {
+    console.log('Not a button message, ignoring');
+  }
+  
   res.status(200).end();
 });
 
-// Start the server
 app.listen(port, () => {
-  console.log(`\nListening on port ${port}\n`);
+  console.log(`Listening on port ${port}`);
 });
